@@ -31,9 +31,35 @@ query CheckoutFind($id: ID!) {
 							currency
 						}
 					}
+					priceUndiscounted {
+						gross {
+							amount
+							currency
+						}
+					}
 				}
 				name
 				id
+				selectionAttributes: attributes(variantSelection: VARIANT_SELECTION) {
+					attribute {
+						name
+						slug
+					}
+					values {
+						name
+						value
+					}
+				}
+				nonSelectionAttributes: attributes(variantSelection: NOT_VARIANT_SELECTION) {
+					attribute {
+						name
+						slug
+					}
+					values {
+						name
+						value
+					}
+				}
 			}
 		}
 		totalPrice {

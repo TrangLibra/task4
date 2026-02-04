@@ -1,17 +1,49 @@
+import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { CurrentUserOrderListDocument } from "@/gql/graphql";
-import { executeGraphQL } from "@/lib/graphql";
-import { LoginForm } from "@/ui/components/LoginForm";
-import { OrderListItem } from "@/ui/components/OrderListItem";
+import { executeAuthenticatedGraphQL } from "@/lib/graphql";
+import { LoginForm } from "@/ui/components/login-form";
+import { OrderListItem } from "@/ui/components/order-list-item";
+import { Loader } from "@/ui/atoms/loader";
 
-export default async function OrderPage() {
-	const { me: user } = await executeGraphQL(CurrentUserOrderListDocument, {
-		cache: "no-cache",
-	});
+/**
+ * Orders page with Cache Components.
+ * Entire page is dynamic (requires auth check).
+ */
+export default function OrderPage() {
+	return (
+		<Suspense fallback={<Loader />}>
+			<OrdersContent />
+		</Suspense>
+	);
+}
 
-	if (!user) {
+/**
+ * Dynamic orders content - checks auth and fetches orders at request time.
+ */
+async function OrdersContent() {
+	// During static generation, skip API call entirely
+	let hasCookies = false;
+	try {
+		const cookieStore = await cookies();
+		hasCookies = cookieStore.getAll().length > 0;
+	} catch {
+		// Static generation - no cookies available
+	}
+
+	if (!hasCookies) {
 		return <LoginForm />;
 	}
 
+	const result = await executeAuthenticatedGraphQL(CurrentUserOrderListDocument, {
+		cache: "no-cache",
+	});
+
+	if (!result.ok || !result.data.me) {
+		return <LoginForm />;
+	}
+
+	const user = result.data.me;
 	const orders = user.orders?.edges || [];
 
 	return (
