@@ -23,14 +23,6 @@ function getMedusaConfig() {
 	const backendUrl = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL;
 	const publishableKey = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY;
 
-	if (!backendUrl) {
-		throw new Error("NEXT_PUBLIC_MEDUSA_BACKEND_URL chưa được cấu hình");
-	}
-
-	if (!publishableKey) {
-		throw new Error("NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY chưa được cấu hình");
-	}
-
 	return {
 		backendUrl,
 		publishableKey,
@@ -43,6 +35,10 @@ function getMedusaConfig() {
 
 async function getMedusaCategories(): Promise<Category[]> {
 	const { backendUrl, publishableKey } = getMedusaConfig();
+
+	if (!backendUrl || !publishableKey) {
+		return [];
+	}
 
 	try {
 		const url = new URL("/store/product-categories", backendUrl);
@@ -82,6 +78,10 @@ async function getMedusaCategories(): Promise<Category[]> {
 
 async function getProductsByCategory(categoryId: string): Promise<Product[]> {
 	const { backendUrl, publishableKey } = getMedusaConfig();
+
+	if (!backendUrl || !publishableKey) {
+		return [];
+	}
 
 	try {
 		const url = new URL("/store/products", backendUrl);

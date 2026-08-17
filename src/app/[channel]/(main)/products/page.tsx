@@ -97,12 +97,13 @@ async function ProductsContent({
 	const backendUrl = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL;
 	const publishableKey = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY;
 
-	if (!backendUrl) {
-		throw new Error("NEXT_PUBLIC_MEDUSA_BACKEND_URL is not configured");
-	}
-
-	if (!publishableKey) {
-		throw new Error("NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY is not configured");
+	if (!backendUrl || !publishableKey) {
+		console.error("NEXT_PUBLIC_MEDUSA_BACKEND_URL or NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY is not configured");
+		return (
+			<div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+				<p className="text-muted-foreground">No products available</p>
+			</div>
+		);
 	}
 
 	/*
@@ -110,42 +111,41 @@ async function ProductsContent({
 	 * MEDUSA PRODUCTS API
 	 * ================================
 	 */
-	const url = new URL("/store/products", backendUrl);
+	let products: MedusaProduct[] = [];
 
-	url.searchParams.set("limit", "20");
-	url.searchParams.set("fields", "*variants,*options");
-	/*
-	 * Pagination
-	 */
-	const cursor = Array.isArray(searchParams.cursor) ? searchParams.cursor[0] : searchParams.cursor;
+	try {
+		const url = new URL("/store/products", backendUrl);
 
-	if (cursor) {
-		url.searchParams.set("cursor", cursor);
+		url.searchParams.set("limit", "20");
+		url.searchParams.set("fields", "*variants,*options");
+		/*
+		 * Pagination
+		 */
+		const cursor = Array.isArray(searchParams.cursor) ? searchParams.cursor[0] : searchParams.cursor;
+
+		if (cursor) {
+			url.searchParams.set("cursor", cursor);
+		}
+
+		const response = await fetch(url.toString(), {
+			headers: {
+				"x-publishable-api-key": publishableKey,
+				"Content-Type": "application/json",
+			},
+			next: {
+				revalidate: 300,
+			},
+		});
+
+		if (response.ok) {
+			const data = (await response.json()) as MedusaProductsResponse;
+			products = data.products ?? [];
+		} else {
+			console.error("[Medusa Products]", response.status, response.statusText);
+		}
+	} catch (error) {
+		console.error("Failed to fetch products from Medusa:", error);
 	}
-
-	const response = await fetch(url.toString(), {
-		headers: {
-			"x-publishable-api-key": publishableKey,
-			"Content-Type": "application/json",
-		},
-		next: {
-			revalidate: 300,
-		},
-	});
-
-	if (!response.ok) {
-		console.error("[Medusa Products]", response.status, response.statusText);
-
-		throw new Error("Failed to fetch products from Medusa");
-	}
-
-	/*
-	 * response.json() = unknown
-	 * nên phải cast về type MedusaProductsResponse
-	 */
-	const data = (await response.json()) as MedusaProductsResponse;
-
-	const products = data.products ?? [];
 
 	console.log("[Medusa Products] Loaded:", products.length, products);
 
