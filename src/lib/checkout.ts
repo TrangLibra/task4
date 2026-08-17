@@ -66,6 +66,7 @@ export interface MedusaLineItem {
 			}>;
 		}>;
 	};
+	[key: string]: any;
 }
 
 export interface MedusaCart {
@@ -81,6 +82,7 @@ export interface MedusaCart {
 	};
 	total?: number;
 	subtotal?: number;
+	[key: string]: any;
 }
 
 interface MedusaResponse<T> {

@@ -5,7 +5,9 @@ export const CartNavItem = async ({ channel }: { channel: string }) => {
 	const checkoutId = await Checkout.getIdFromCookies(channel);
 	const checkout = checkoutId ? await Checkout.find(checkoutId) : null;
 
-	const lineCount = checkout ? checkout.lines.reduce((result, line) => result + line.quantity, 0) : 0;
+	const lineCount = checkout?.lines
+		? checkout.lines.reduce((result, line: any) => result + (line?.quantity ?? 0), 0)
+		: 0;
 
 	return <CartButton itemCount={lineCount} />;
 };

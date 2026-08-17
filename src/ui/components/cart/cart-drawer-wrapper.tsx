@@ -12,8 +12,8 @@ export async function CartDrawerWrapper({ channel }: CartDrawerWrapperProps) {
 	return (
 		<CartDrawer
 			checkoutId={checkoutId || null}
-			lines={checkout?.lines ?? []}
-			totalPrice={checkout?.totalPrice ?? null}
+			lines={(checkout?.lines as any) ?? []}
+			totalPrice={(checkout?.totalPrice as any) ?? null}
 			channel={channel}
 		/>
 	);
