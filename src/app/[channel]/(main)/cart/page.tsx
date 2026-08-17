@@ -31,7 +31,7 @@ async function CartContent({ params: paramsPromise }: { params: Promise<{ channe
 	const checkoutId = await Checkout.getIdFromCookies(params.channel);
 	const checkout = await Checkout.find(checkoutId);
 
-	if (!checkout || checkout.lines.length < 1) {
+	if (!checkout || !checkout.lines || checkout.lines.length < 1) {
 		return (
 			<div className="mt-12">
 				<p className="my-12 text-sm text-neutral-500">

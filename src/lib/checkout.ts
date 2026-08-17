@@ -1,23 +1,84 @@
 import { cookies } from "next/headers";
 
-const backendUrl = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL;
-const publishableKey = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY;
-
-if (!backendUrl || !publishableKey) {
-	throw new Error("NEXT_PUBLIC_MEDUSA_BACKEND_URL and NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY must be configured");
-}
-
-const MEDUSA_BACKEND_URL: string = backendUrl;
-const MEDUSA_PUBLISHABLE_KEY: string = publishableKey;
+const MEDUSA_BACKEND_URL: string = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ?? "http://localhost:9000";
+const MEDUSA_PUBLISHABLE_KEY: string = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY ?? "";
 
 /* ============================================================
  * TYPES
  * ============================================================ */
 
+export interface MedusaLineItem {
+	id: string;
+	quantity: number;
+	totalPrice: {
+		gross: {
+			amount: number;
+			currency: string;
+		};
+	};
+	variant: {
+		id: string;
+		name: string;
+		product: {
+			id: string;
+			name: string;
+			slug: string;
+			thumbnail?: {
+				url: string;
+				alt?: string | null;
+			} | null;
+			category?: {
+				name: string;
+			} | null;
+		};
+		pricing?: {
+			price?: {
+				gross: {
+					amount: number;
+					currency: string;
+				};
+			} | null;
+			priceUndiscounted?: {
+				gross: {
+					amount: number;
+					currency: string;
+				};
+			} | null;
+		} | null;
+		selectionAttributes?: Array<{
+			attribute: {
+				name: string;
+				slug: string;
+			};
+			values: Array<{
+				name?: string | null;
+				value?: string | null;
+			}>;
+		}>;
+		nonSelectionAttributes?: Array<{
+			attribute: {
+				name: string;
+				slug: string;
+			};
+			values: Array<{
+				name?: string | null;
+				value?: string | null;
+			}>;
+		}>;
+	};
+}
+
 export interface MedusaCart {
 	id: string;
 	currency_code?: string;
 	items?: unknown[];
+	lines: MedusaLineItem[];
+	totalPrice: {
+		gross: {
+			amount: number;
+			currency: string;
+		};
+	};
 	total?: number;
 	subtotal?: number;
 }
