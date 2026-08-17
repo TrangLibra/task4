@@ -36,6 +36,7 @@ async function getCategories(): Promise<Category[]> {
 		const response = await fetch(url.toString(), {
 			headers: {
 				"x-publishable-api-key": publishableKey,
+				"bypass-tunnel-reminder": "true",
 			},
 			next: {
 				revalidate: 300,

@@ -68,6 +68,7 @@ async function getCategoryData(slug: string): Promise<MedusaCategory | null> {
 			method: "GET",
 			headers: {
 				"x-publishable-api-key": PUBLISHABLE_KEY,
+				"bypass-tunnel-reminder": "true",
 				"Content-Type": "application/json",
 			},
 			next: {
@@ -149,6 +150,7 @@ async function getCategoryProducts(
 			method: "GET",
 			headers: {
 				"x-publishable-api-key": PUBLISHABLE_KEY,
+				"bypass-tunnel-reminder": "true",
 				"Content-Type": "application/json",
 			},
 			next: {
