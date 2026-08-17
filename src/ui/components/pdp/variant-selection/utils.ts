@@ -1,352 +1,453 @@
-/**
- * Utility functions for transforming Saleor variant data.
- *
- * These pure functions handle data transformation separately from presentation,
- * making it easy to customize how Saleor data is interpreted.
- */
-
+import type { StoreProduct } from "@medusajs/types";
 import type { VariantOption, AttributeGroup } from "./types";
-import { getColorHex, isColorAttribute, isSizeAttribute, COLOR_NAME_TO_HEX } from "@/lib/colors";
-import { getMaxDiscountInfo as getMaxDiscountInfoBase } from "@/lib/pricing";
-import { sortBySizeProperty } from "@/lib/sizes";
 
-// Re-export for backwards compatibility
+import { getColorHex, isColorAttribute, isSizeAttribute, COLOR_NAME_TO_HEX } from "@/lib/colors";
+
+import { sortBySizeProperty } from "@/lib/sizes";
+import { getDiscountInfo } from "@/lib/pricing";
+
 export { COLOR_NAME_TO_HEX };
 
-/**
- * Raw variant type from Saleor GraphQL
- */
-export type SaleorVariant = {
-	id: string;
-	name: string;
-	quantityAvailable?: number | null;
-	selectionAttributes: Array<{
-		attribute: { slug?: string | null; name?: string | null };
-		values: Array<{ name?: string | null; value?: string | null }>;
-	}>;
-	nonSelectionAttributes?: Array<{
-		attribute: { slug?: string | null; name?: string | null };
-		values: Array<{ name?: string | null; value?: string | null }>;
-	}>;
-	pricing?: {
-		price?: { gross: { amount: number; currency: string } } | null;
-		priceUndiscounted?: { gross: { amount: number; currency: string } } | null;
-	} | null;
-};
+export type MedusaVariant = NonNullable<StoreProduct["variants"]>[number];
+export type MedusaProductOption = NonNullable<StoreProduct["options"]>[number];
 
-// ============================================================================
-// Discount Helpers (using shared pricing utilities)
-// ============================================================================
+/* ============================================================
+ * HELPERS
+ * ============================================================ */
 
-/**
- * Get max discount info across a list of variants.
- */
-function getMaxDiscountInfo(variants: SaleorVariant[]): { hasDiscount: boolean; maxPercent: number } {
-	const result = getMaxDiscountInfoBase(variants, (v) => ({
-		current: v.pricing?.price?.gross?.amount,
-		undiscounted: v.pricing?.priceUndiscounted?.gross?.amount,
-	}));
+function normalizeValue(value: string | null | undefined): string {
+	return (value ?? "").toLowerCase().trim().replace(/\s+/g, "-");
+}
+
+function normalizeOptionName(value: string | null | undefined): string {
+	return (value ?? "")
+		.toLowerCase()
+		.trim()
+		.replace(/[_\s]+/g, "-");
+}
+
+function getVariantOptions(variant: MedusaVariant) {
+	return variant.options ?? [];
+}
+
+function isVariantAvailable(variant: MedusaVariant): boolean {
+	if (variant.manage_inventory === false) {
+		return true;
+	}
+
+	return (variant.inventory_quantity ?? 0) > 0;
+}
+
+function getVariantDiscount(variant: MedusaVariant) {
+	return getDiscountInfo(
+		variant.calculated_price?.calculated_amount,
+		variant.calculated_price?.original_amount,
+	);
+}
+
+function getMaxDiscountInfo(variants: MedusaVariant[]) {
+	let hasDiscount = false;
+	let maxPercent = 0;
+
+	for (const variant of variants) {
+		const discount = getVariantDiscount(variant);
+
+		if (discount.isOnSale) {
+			hasDiscount = true;
+			maxPercent = Math.max(maxPercent, discount.discountPercent ?? 0);
+		}
+	}
+
 	return {
-		hasDiscount: result.isOnSale,
-		maxPercent: result.discountPercent ?? 0,
+		hasDiscount,
+		maxPercent,
 	};
 }
 
-// ============================================================================
-// Main Functions
-// ============================================================================
+/* ============================================================
+ * PRODUCT OPTIONS
+ * ============================================================ */
 
-/**
- * Group variants by their attributes.
- *
- * For a product with Color (Black, White) and Size (S, M, L), this returns:
- * [
- *   { slug: "color", name: "Color", options: [{ id: "black", name: "Black", colorHex: "#1a1a1a", ... }, ...] },
- *   { slug: "size", name: "Size", options: [{ id: "s", name: "S", ... }, ...] }
- * ]
- *
- * Each option tracks which variants it appears in, allowing us to:
- * - Show availability based on other selections
- * - Find the matching variant when all attributes are selected
- *
- * NOTE: Attributes with only one unique value are filtered out, as they don't
- * differentiate variants (likely product-level attributes incorrectly assigned to variants).
- */
-export function groupVariantsByAttributes(variants: SaleorVariant[]): AttributeGroup[] {
-	// Map: attributeSlug -> { name, values: Map<valueName, { variantIds, colorHex }> }
-	const attributeMap = new Map<
+function createProductOptionMap(productOptions: MedusaProductOption[]) {
+	const map = new Map<
 		string,
 		{
-			name: string;
-			values: Map<string, { variantIds: Set<string>; colorHex?: string }>;
+			title: string;
+			slug: string;
 		}
 	>();
 
-	// Process each variant
-	for (const variant of variants) {
-		for (const attr of variant.selectionAttributes) {
-			const slug = attr.attribute.slug ?? "";
-			const name = attr.attribute.name ?? slug;
+	for (const option of productOptions) {
+		if (!option.id || !option.title) continue;
 
-			if (!attributeMap.has(slug)) {
-				attributeMap.set(slug, { name, values: new Map() });
-			}
+		const title = option.title.trim();
+		const normalized = normalizeOptionName(title);
 
-			const attrData = attributeMap.get(slug)!;
+		let slug = normalized;
 
-			for (const val of attr.values) {
-				const valueName = val.name ?? "";
-				if (!valueName) continue;
+		if (normalized === "color" || normalized === "colour") {
+			slug = "color";
+		}
 
-				if (!attrData.values.has(valueName)) {
-					attrData.values.set(valueName, {
-						variantIds: new Set(),
-						colorHex: isColorAttribute(slug) ? getColorHex(val) : undefined,
-					});
+		if (normalized === "size" || normalized === "product-size") {
+			slug = "size";
+		}
+
+		map.set(option.id, {
+			title,
+			slug,
+		});
+	}
+
+	return map;
+}
+
+/* ============================================================
+ * GROUP VARIANTS
+ * ============================================================ */
+
+export function groupVariantsByAttributes(
+	variants: MedusaVariant[],
+	productOptions: MedusaProductOption[] = [],
+): AttributeGroup[] {
+	const optionMap = createProductOptionMap(productOptions);
+
+	const groups = new Map<
+		string,
+		{
+			optionId: string;
+			name: string;
+			slug: string;
+			options: Map<
+				string,
+				{
+					name: string;
+					variantIds: Set<string>;
+					colorHex?: string;
 				}
+			>;
+		}
+	>();
 
-				attrData.values.get(valueName)!.variantIds.add(variant.id);
+	for (const variant of variants) {
+		for (const variantOption of getVariantOptions(variant)) {
+			const optionId = variantOption.option_id;
+			const value = variantOption.value?.trim();
+
+			if (!optionId || !value) continue;
+
+			const productOption = optionMap.get(optionId);
+
+			/*
+			 * Nếu Medusa product.options không được trả về,
+			 * thử đoán từ option_id.
+			 */
+			const title =
+				productOption?.title ??
+				(isColorAttribute(optionId) ? "Color" : isSizeAttribute(optionId) ? "Size" : optionId);
+
+			const slug = productOption?.slug ?? normalizeOptionName(title);
+
+			if (!groups.has(optionId)) {
+				groups.set(optionId, {
+					optionId,
+					name: title,
+					slug,
+					options: new Map(),
+				});
 			}
+
+			const group = groups.get(optionId)!;
+
+			if (!group.options.has(value)) {
+				const isColor = slug === "color" || slug === "colour" || isColorAttribute(optionId);
+
+				group.options.set(value, {
+					name: value,
+					variantIds: new Set(),
+					colorHex: isColor
+						? getColorHex({
+								name: value,
+								value,
+							})
+						: undefined,
+				});
+			}
+
+			group.options.get(value)!.variantIds.add(variant.id);
 		}
 	}
 
-	// Convert to AttributeGroup array
-	const groups: AttributeGroup[] = [];
+	const result: AttributeGroup[] = [];
 
-	for (const [slug, data] of attributeMap) {
+	for (const group of groups.values()) {
 		const options: VariantOption[] = [];
 
-		for (const [valueName, valueData] of data.values) {
-			// Get all variants with this value
-			const variantsWithValue = [...valueData.variantIds]
-				.map((id) => variants.find((v) => v.id === id)!)
-				.filter(Boolean);
+		for (const option of group.options.values()) {
+			const relatedVariants = variants.filter((variant) => option.variantIds.has(variant.id));
 
-			// Check availability
-			const available = variantsWithValue.some((v) => (v.quantityAvailable ?? 0) > 0);
+			const available = relatedVariants.some(isVariantAvailable);
 
-			// Get discount info
-			const { hasDiscount, maxPercent } = getMaxDiscountInfo(variantsWithValue);
+			const { hasDiscount, maxPercent } = getMaxDiscountInfo(relatedVariants);
 
 			options.push({
-				id: valueName.toLowerCase().replace(/\s+/g, "-"),
-				name: valueName,
+				id: normalizeValue(option.name),
+				name: option.name,
 				available,
+				existsWithCurrentSelection: true,
 				hasDiscount,
 				discountPercent: maxPercent > 0 ? maxPercent : undefined,
-				colorHex: valueData.colorHex,
-				variantIds: [...valueData.variantIds],
+				colorHex: option.colorHex,
+				variantIds: [...option.variantIds],
 			});
 		}
 
-		// Sort size options in logical order (S, M, L, XL, etc.)
-		const sortedOptions = isSizeAttribute(slug) ? sortBySizeProperty(options) : options;
+		const sorted = group.slug === "size" ? sortBySizeProperty(options) : options;
 
-		groups.push({ slug, name: data.name, options: sortedOptions });
+		result.push({
+			slug: group.slug,
+			name: group.name,
+			options: sorted,
+		});
 	}
 
-	// Sort: color attributes first, then size, then others
-	groups.sort((a, b) => {
-		const aIsColor = isColorAttribute(a.slug);
-		const bIsColor = isColorAttribute(b.slug);
-		const aIsSize = isSizeAttribute(a.slug);
-		const bIsSize = isSizeAttribute(b.slug);
+	/*
+	 * Color trước
+	 * Size sau
+	 */
+	result.sort((a, b) => {
+		if (a.slug === "color") return -1;
+		if (b.slug === "color") return 1;
 
-		if (aIsColor && !bIsColor) return -1;
-		if (!aIsColor && bIsColor) return 1;
-		if (aIsSize && !bIsSize) return -1;
-		if (!aIsSize && bIsSize) return 1;
+		if (a.slug === "size") return -1;
+		if (b.slug === "size") return 1;
+
 		return 0;
 	});
 
-	return groups;
+	return result;
 }
 
-/**
- * Find the variant that matches all selected attribute values.
- *
- * IMPORTANT: Only returns a match if ALL attribute groups have a selection.
- * Partial selections (e.g., only Color selected, Size not selected) return undefined.
- */
+/* ============================================================
+ * FIND MATCHING VARIANT
+ * ============================================================ */
+
 export function findMatchingVariant(
-	variants: SaleorVariant[],
+	variants: MedusaVariant[],
 	selections: Record<string, string>,
+	productOptions: MedusaProductOption[] = [],
 ): string | undefined {
-	const selectionEntries = Object.entries(selections).filter(([, value]) => value);
-	if (selectionEntries.length === 0) return undefined;
+	const groups = groupVariantsByAttributes(variants, productOptions);
 
-	// Get all attribute groups to verify all are selected
-	const attributeGroups = groupVariantsByAttributes(variants);
-	const allAttributesSelected = attributeGroups.every(
-		(group) => selections[group.slug] !== undefined && selections[group.slug] !== "",
-	);
-
-	if (!allAttributesSelected) return undefined;
-
-	for (const variant of variants) {
-		let allMatch = true;
-
-		for (const [attrSlug, selectedValue] of selectionEntries) {
-			const attr = variant.selectionAttributes.find(
-				(a) => (a.attribute.slug ?? "").toLowerCase() === attrSlug.toLowerCase(),
-			);
-
-			if (!attr) {
-				allMatch = false;
-				break;
-			}
-
-			const hasMatchingValue = attr.values.some(
-				(v) => (v.name ?? "").toLowerCase().replace(/\s+/g, "-") === selectedValue.toLowerCase(),
-			);
-
-			if (!hasMatchingValue) {
-				allMatch = false;
-				break;
-			}
-		}
-
-		if (allMatch) return variant.id;
+	if (!groups.length) {
+		return variants.length === 1 ? variants[0]?.id : undefined;
 	}
 
-	return undefined;
+	// Phải chọn đủ Color / Size / các option khác
+	const allSelected = groups.every((group) => Boolean(selections[group.slug]));
+
+	if (!allSelected) {
+		return undefined;
+	}
+
+	const optionMap = createProductOptionMap(productOptions);
+
+	const matchingVariant = variants.find((variant) => {
+		return groups.every((group) => {
+			const selectedValue = selections[group.slug];
+
+			if (!selectedValue) {
+				return false;
+			}
+
+			const productOption = [...optionMap.entries()].find(([, data]) => data.slug === group.slug);
+
+			if (!productOption) {
+				return false;
+			}
+
+			const optionId = productOption[0];
+
+			const variantOption = getVariantOptions(variant).find((option) => option.option_id === optionId);
+
+			if (!variantOption) {
+				return false;
+			}
+
+			return normalizeValue(variantOption.value) === normalizeValue(selectedValue);
+		});
+	});
+
+	return matchingVariant?.id;
 }
 
-/**
- * Get current selections from a variant ID.
- * Reverse lookup: given a variant ID, extract its attribute values.
- */
+/* ============================================================
+ * GET SELECTIONS FROM VARIANT
+ * ============================================================ */
+
 export function getSelectionsFromVariant(
-	variants: SaleorVariant[],
+	variants: MedusaVariant[],
 	variantId: string,
+	productOptions: MedusaProductOption[] = [],
 ): Record<string, string> {
-	const variant = variants.find((v) => v.id === variantId);
+	const variant = variants.find((item) => item.id === variantId);
+
 	if (!variant) return {};
 
+	const optionMap = createProductOptionMap(productOptions);
+
 	const selections: Record<string, string> = {};
-	for (const attr of variant.selectionAttributes) {
-		const slug = attr.attribute.slug ?? "";
-		const value = attr.values[0]?.name ?? "";
-		if (slug && value) {
-			selections[slug] = value.toLowerCase().replace(/\s+/g, "-");
+
+	for (const option of getVariantOptions(variant)) {
+		if (!option.option_id || !option.value) {
+			continue;
 		}
+
+		const productOption = optionMap.get(option.option_id);
+
+		if (!productOption) {
+			continue;
+		}
+
+		selections[productOption.slug] = normalizeValue(option.value);
 	}
 
 	return selections;
 }
 
-/**
- * Get options for an attribute with availability and compatibility info.
- *
- * Options are marked as:
- * - `available: true` - In stock
- * - `available: false` - Out of stock globally
- * - `existsWithCurrentSelection: true` - Variant exists with this + current selections
- * - `existsWithCurrentSelection: false` - No variant exists (will clear other selections)
- */
+/* ============================================================
+ * GET OPTIONS FOR ATTRIBUTE
+ * ============================================================ */
+
 export function getOptionsForAttribute(
-	variants: SaleorVariant[],
+	variants: MedusaVariant[],
 	attributeGroups: AttributeGroup[],
 	currentSelections: Record<string, string>,
 	targetAttributeSlug: string,
+	productOptions: MedusaProductOption[] = [],
 ): VariantOption[] {
-	const targetGroup = attributeGroups.find((g) => g.slug === targetAttributeSlug);
-	if (!targetGroup) return [];
+	const group = attributeGroups.find((item) => item.slug === targetAttributeSlug);
 
-	const otherSelections = Object.entries(currentSelections).filter(([slug]) => slug !== targetAttributeSlug);
+	if (!group) return [];
 
-	return targetGroup.options.map((option) => {
-		// Find ALL variants that have this option value
-		const variantsWithOption = variants.filter((variant) => {
-			const attr = variant.selectionAttributes.find(
-				(a) => (a.attribute.slug ?? "").toLowerCase() === targetAttributeSlug.toLowerCase(),
+	const optionMap = createProductOptionMap(productOptions);
+
+	const targetProductOption = [...optionMap.entries()].find(([, data]) => data.slug === targetAttributeSlug);
+
+	if (!targetProductOption) {
+		return group.options;
+	}
+
+	const targetOptionId = targetProductOption[0];
+
+	const otherSelections = Object.entries(currentSelections).filter(
+		([slug, value]) => slug !== targetAttributeSlug && Boolean(value),
+	);
+
+	return group.options.map((option) => {
+		const matchingVariants = variants.filter((variant) => {
+			const targetVariantOption = getVariantOptions(variant).find(
+				(item) => item.option_id === targetOptionId && normalizeValue(item.value) === option.id,
 			);
-			return attr?.values.some((v) => (v.name ?? "").toLowerCase().replace(/\s+/g, "-") === option.id);
+
+			if (!targetVariantOption) {
+				return false;
+			}
+
+			return otherSelections.every(([slug, selectedValue]) => {
+				const otherGroup = attributeGroups.find((item) => item.slug === slug);
+
+				if (!otherGroup) return false;
+
+				const otherProductOption = [...optionMap.entries()].find(([, data]) => data.slug === slug);
+
+				if (!otherProductOption) return false;
+
+				const otherOptionId = otherProductOption[0];
+
+				return getVariantOptions(variant).some(
+					(item) =>
+						item.option_id === otherOptionId && normalizeValue(item.value) === normalizeValue(selectedValue),
+				);
+			});
 		});
 
-		// Check availability and discount
-		const available = variantsWithOption.some((v) => (v.quantityAvailable ?? 0) > 0);
-		const { hasDiscount, maxPercent } = getMaxDiscountInfo(variantsWithOption);
+		const available = matchingVariants.some(isVariantAvailable);
 
-		// Check if a variant exists with this option AND all other current selections
-		let existsWithCurrentSelection = true;
-		if (otherSelections.length > 0) {
-			existsWithCurrentSelection = variantsWithOption.some((variant) => {
-				for (const [attrSlug, selectedValue] of otherSelections) {
-					const attr = variant.selectionAttributes.find(
-						(a) => (a.attribute.slug ?? "").toLowerCase() === attrSlug.toLowerCase(),
-					);
-					if (!attr) return false;
-
-					const hasValue = attr.values.some(
-						(v) => (v.name ?? "").toLowerCase().replace(/\s+/g, "-") === selectedValue,
-					);
-					if (!hasValue) return false;
-				}
-				return true;
-			});
-		}
+		const { hasDiscount, maxPercent } = getMaxDiscountInfo(matchingVariants);
 
 		return {
 			...option,
 			available,
 			hasDiscount,
 			discountPercent: maxPercent > 0 ? maxPercent : undefined,
-			existsWithCurrentSelection,
+			existsWithCurrentSelection: matchingVariants.length > 0,
 		};
 	});
 }
 
-/**
- * Smart selection handler that adjusts other attributes when needed.
- * When user selects an option that doesn't exist with current selections,
- * we clear conflicting selections rather than blocking the user.
- */
+/* ============================================================
+ * ADJUST SELECTIONS
+ * ============================================================ */
+
 export function getAdjustedSelections(
-	variants: SaleorVariant[],
+	variants: MedusaVariant[],
 	currentSelections: Record<string, string>,
 	attributeSlug: string,
 	newValue: string,
 ): Record<string, string> {
-	const newSelections = { ...currentSelections, [attributeSlug]: newValue };
-	const matchingVariant = findMatchingVariant(variants, newSelections);
-
-	if (matchingVariant) return newSelections;
-
-	// No exact match - keep only the newly selected attribute
-	return { [attributeSlug]: newValue };
+	return {
+		...currentSelections,
+		[attributeSlug]: normalizeValue(newValue),
+	};
 }
 
-// Backwards compatibility alias
+/* ============================================================
+ * AVAILABLE OPTIONS
+ * ============================================================ */
+
 export const getAvailableOptionsForAttribute = getOptionsForAttribute;
 
-/**
- * Check if any attribute group has no available options given current selections.
- * Returns info about "dead end" situations.
- */
+/* ============================================================
+ * UNAVAILABLE INFO
+ * ============================================================ */
+
 export function getUnavailableAttributeInfo(
-	variants: SaleorVariant[],
+	variants: MedusaVariant[],
 	attributeGroups: AttributeGroup[],
 	currentSelections: Record<string, string>,
-): { slug: string; name: string; blockedBy: string } | null {
-	const selectionEntries = Object.entries(currentSelections).filter(([, value]) => value);
-	if (selectionEntries.length === 0) return null;
+	productOptions: MedusaProductOption[] = [],
+) {
+	const selections = Object.entries(currentSelections).filter(([, value]) => Boolean(value));
+
+	if (!selections.length) {
+		return null;
+	}
 
 	for (const group of attributeGroups) {
-		if (currentSelections[group.slug]) continue;
+		if (currentSelections[group.slug]) {
+			continue;
+		}
 
-		const options = getOptionsForAttribute(variants, attributeGroups, currentSelections, group.slug);
-		const hasAnyAvailable = options.some((opt) => opt.available && opt.existsWithCurrentSelection !== false);
+		const options = getOptionsForAttribute(
+			variants,
+			attributeGroups,
+			currentSelections,
+			group.slug,
+			// cần truyền productOptions vào đây
+			productOptions,
+		);
+		const available = options.some(
+			(option) => option.available && option.existsWithCurrentSelection !== false,
+		);
 
-		if (!hasAnyAvailable) {
-			const blockingSelection = selectionEntries[selectionEntries.length - 1];
-			const blockingGroup = attributeGroups.find((g) => g.slug === blockingSelection[0]);
-			const blockingOption = blockingGroup?.options.find((o) => o.id === blockingSelection[1]);
+		if (!available) {
+			const last = selections[selections.length - 1];
 
 			return {
 				slug: group.slug,
 				name: group.name,
-				blockedBy: blockingOption?.name || blockingSelection[1],
+				blockedBy: last[1],
 			};
 		}
 	}

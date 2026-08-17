@@ -27,14 +27,14 @@ interface LogoProps {
  * Uses explicit width/height + aspect-ratio to prevent CLS while
  * allowing flexible sizing via className.
  */
-export const Logo = ({ className, ariaLabel = "Paper by Saleor", inverted = false }: LogoProps) => {
+export const Logo = ({ className, ariaLabel = "Paper by Saleor" }: LogoProps) => {
 	// When inverted, swap the light/dark mode logic
-	const lightModeLogo = inverted ? "/logo-dark.svg" : "/logo.svg";
-	const darkModeLogo = inverted ? "/logo.svg" : "/logo-dark.svg";
+	const lightModeLogo = "/logo.png";
+	const darkModeLogo = "/logo.png";
 
 	// Base styles: preserve aspect ratio to prevent CLS
 	// Height classes (e.g., h-7) will work correctly with w-auto
-	const baseStyles = "aspect-[100/23]";
+	// const baseStyles = "aspect-auto";
 
 	return (
 		<>
@@ -43,18 +43,17 @@ export const Logo = ({ className, ariaLabel = "Paper by Saleor", inverted = fals
 			<img
 				src={lightModeLogo}
 				alt={ariaLabel}
-				width={100}
-				height={23}
-				className={`dark:hidden ${baseStyles} ${className ?? ""}`}
+				width={180}
+				height={80}
+				className={`h-10 w-auto dark:hidden ${className ?? ""}`}
 			/>
-			{/* Dark mode */}
-			{/* eslint-disable-next-line @next/next/no-img-element */}
+
 			<img
 				src={darkModeLogo}
 				alt={ariaLabel}
-				width={100}
-				height={23}
-				className={`hidden dark:block ${baseStyles} ${className ?? ""}`}
+				width={180}
+				height={80}
+				className={`hidden h-10 w-auto dark:block ${className ?? ""}`}
 			/>
 		</>
 	);

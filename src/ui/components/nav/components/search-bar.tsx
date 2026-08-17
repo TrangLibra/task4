@@ -1,36 +1,105 @@
-import { redirect } from "next/navigation";
-import { SearchIcon } from "lucide-react";
+"use client";
 
-export const SearchBar = ({ channel }: { channel: string }) => {
-	async function onSubmit(formData: FormData) {
-		"use server";
-		const search = formData.get("search") as string;
-		if (search && search.trim().length > 0) {
-			redirect(`/${encodeURIComponent(channel)}/search?query=${encodeURIComponent(search)}`);
+import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, SearchIcon } from "lucide-react";
+
+type Category = {
+	id: string;
+	name: string;
+	handle: string;
+};
+
+type SearchBarProps = {
+	channel: string;
+	categories?: Category[];
+};
+
+export function SearchBar({ channel, categories = [] }: SearchBarProps) {
+	const router = useRouter();
+
+	const [open, setOpen] = useState(false);
+	const [search, setSearch] = useState("");
+
+	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+
+		const query = search.trim();
+
+		if (!query) {
+			return;
 		}
-	}
+
+		router.push(`/${encodeURIComponent(channel)}/search?query=${encodeURIComponent(query)}`);
+
+		setOpen(false);
+	};
+
+	const handleCategoryClick = (handle: string) => {
+		setOpen(false);
+
+		router.push(`/${encodeURIComponent(channel)}/categories/${encodeURIComponent(handle)}`);
+	};
 
 	return (
-		<form action={onSubmit} className="group relative w-full max-w-md">
-			<label className="relative block">
-				<span className="sr-only">Search for products</span>
-				{/* Search icon */}
-				<span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-					<SearchIcon
-						className="h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-foreground"
-						aria-hidden
+		<div className="relative w-full max-w-4xl">
+			<form onSubmit={handleSubmit}>
+				<div className="flex h-14 overflow-visible rounded-full border border-gray-300 bg-white">
+					{/* DANH MỤC */}
+					<button
+						type="button"
+						onClick={() => setOpen((prev) => !prev)}
+						className="flex w-64 shrink-0 items-center justify-between rounded-l-full border-r px-6 text-gray-600 transition-colors hover:bg-gray-50"
+					>
+						<span>Danh mục sản phẩm</span>
+
+						<ChevronDown
+							className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${
+								open ? "rotate-180" : ""
+							}`}
+						/>
+					</button>
+
+					{/* SEARCH */}
+					<input
+						type="text"
+						name="search"
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						placeholder="Tìm theo tên sản phẩm..."
+						autoComplete="off"
+						className="min-w-0 flex-1 border-0 bg-transparent px-5 text-base outline-none focus:outline-none focus:ring-0"
 					/>
-				</span>
-				{/* Input */}
-				<input
-					type="text"
-					name="search"
-					placeholder="Search for products..."
-					autoComplete="off"
-					required
-					className="hover:bg-secondary/80 focus:outline-hidden h-10 w-full rounded-lg border border-transparent bg-secondary py-2 pl-11 pr-4 text-sm text-foreground transition-all placeholder:text-muted-foreground hover:border-border focus:border-ring focus:bg-background focus:ring-1 focus:ring-ring"
-				/>
-			</label>
-		</form>
+
+					{/* BUTTON */}
+					<button
+						type="submit"
+						className="flex w-20 shrink-0 items-center justify-center rounded-r-full bg-[#ff8a5b] text-white transition-colors hover:bg-[#ff7440]"
+					>
+						<SearchIcon className="h-6 w-6" />
+					</button>
+				</div>
+			</form>
+
+			{/* DROPDOWN */}
+			{open && (
+				<div className="absolute left-0 top-[60px] z-[999] w-64 overflow-hidden rounded-xl border border-gray-200 bg-white py-2 text-gray-700 shadow-xl">
+					{categories.length > 0 ? (
+						categories.map((category) => (
+							<button
+								key={category.id}
+								type="button"
+								onClick={() => handleCategoryClick(category.handle)}
+								className="block w-full px-5 py-3 text-left text-sm transition-colors hover:bg-orange-50 hover:text-orange-500"
+							>
+								{category.name}
+							</button>
+						))
+					) : (
+						<div className="px-5 py-3 text-sm text-gray-500">Không có danh mục sản phẩm</div>
+					)}
+				</div>
+			)}
+		</div>
 	);
-};
+}

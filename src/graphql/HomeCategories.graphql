@@ -1,0 +1,19 @@
+query HomeCategories($channel: String!) {
+	categories(first: 20) {
+		edges {
+			node {
+				id
+				name
+				slug
+
+				products(first: 6, channel: $channel) {
+					edges {
+						node {
+							...ProductListItem
+						}
+					}
+				}
+			}
+		}
+	}
+}

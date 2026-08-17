@@ -11,8 +11,14 @@ export const ProductImageWrapper = ({
 	...props
 }: ProductImageWrapperProps) => {
 	return (
-		<div className={clsx("aspect-square overflow-hidden bg-secondary", containerClassName)}>
-			<NextImage {...props} className={clsx("h-full w-full object-cover object-center", className)} />
+		<div className={clsx("aspect-square overflow-hidden rounded-2xl bg-secondary", containerClassName)}>
+			<NextImage
+				{...props}
+				className={clsx(
+					"h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-110",
+					className,
+				)}
+			/>
 		</div>
 	);
 };

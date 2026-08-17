@@ -1,127 +1,203 @@
 import { revalidatePath } from "next/cache";
+import type { StoreProduct } from "@medusajs/types";
 
-import { formatMoney, formatMoneyRange } from "@/lib/utils";
+import { formatMoney } from "@/lib/utils";
 import { getDiscountInfo } from "@/lib/pricing";
-import { CheckoutAddLineDocument, type ProductDetailsQuery } from "@/gql/graphql";
-import { executeAuthenticatedGraphQL } from "@/lib/graphql";
+
 import * as Checkout from "@/lib/checkout";
 
 import { AddToCart } from "./add-to-cart";
 import { VariantSelectionSection } from "./variant-selection";
 import { StickyBar } from "./sticky-bar";
 import { Badge } from "@/ui/components/ui/badge";
-
-type Product = NonNullable<ProductDetailsQuery["product"]>;
+import { QuantitySelector } from "./quantity-selector";
 
 interface VariantSectionDynamicProps {
-	product: Product;
+	product: StoreProduct;
 	channel: string;
-	searchParams: Promise<{ variant?: string }>;
+	searchParams: Promise<{
+		variant?: string;
+	}>;
 }
 
-/**
- * Dynamic variant section for PDP.
- *
- * With Cache Components enabled, this component streams at request time
- * because it accesses searchParams (runtime data). The product data is
- * already cached in the static shell - this just adds the interactive parts.
- */
 export async function VariantSectionDynamic({ product, channel, searchParams }: VariantSectionDynamicProps) {
 	const { variant: variantParam } = await searchParams;
-	const variants = product.variants || [];
 
-	// Auto-select variant: use URL param, or auto-select if only one variant exists
-	const selectedVariantID = variantParam || (variants.length === 1 ? variants[0].id : undefined);
-	const selectedVariant = variants.find(({ id }) => id === selectedVariantID);
+	/**
+	 * Medusa variants
+	 */
+	const variants = product.variants ?? [];
 
-	// Check availability
-	const isAvailable = variants.some((variant) => variant.quantityAvailable);
+	/**
+	 * Auto select variant:
+	 * - Use ?variant=...
+	 * - If product has only one variant, select it automatically
+	 */
+	const selectedVariantId = variantParam ?? (variants.length === 1 ? variants[0]?.id : undefined);
 
-	// Determine add-to-cart button state
-	const isAddToCartDisabled = !selectedVariantID || !selectedVariant?.quantityAvailable;
-	const disabledReason = !selectedVariantID
+	const selectedVariant = variants.find((variant) => variant.id === selectedVariantId);
+
+	/**
+	 * Inventory
+	 *
+	 * Medusa uses inventory_quantity.
+	 *
+	 * Note:
+	 * inventory_quantity must be requested when fetching the product.
+	 */
+	const isVariantAvailable = (variant: any) => {
+		// Không quản lý tồn kho => luôn cho mua
+		if (variant.manage_inventory === false) {
+			return true;
+		}
+
+		// Cho phép đặt hàng khi hết hàng
+		if (variant.allow_backorder === true) {
+			return true;
+		}
+
+		// Có tồn kho
+		return (variant.inventory_quantity ?? 0) > 0;
+	};
+	const isAvailable = variants.some(isVariantAvailable);
+
+	const selectedVariantAvailable = selectedVariant ? isVariantAvailable(selectedVariant) : false;
+
+	/**
+	 * Add to cart button state
+	 */
+	const isAddToCartDisabled = !selectedVariantId || !selectedVariantAvailable;
+
+	const disabledReason = !selectedVariantId
 		? ("no-selection" as const)
-		: !selectedVariant?.quantityAvailable
+		: !selectedVariantAvailable
 			? ("out-of-stock" as const)
 			: undefined;
 
-	// Format prices
-	const price = selectedVariant?.pricing?.price?.gross
-		? selectedVariant.pricing.price.gross.amount === 0
-			? "FREE"
-			: formatMoney(selectedVariant.pricing.price.gross.amount, selectedVariant.pricing.price.gross.currency)
-		: formatMoneyRange({
-				start: product.pricing?.priceRange?.start?.gross,
-				stop: product.pricing?.priceRange?.stop?.gross,
-			}) || "";
+	/**
+	 * ---------------------------------------------------------
+	 * PRICE
+	 * ---------------------------------------------------------
+	 *
+	 * Medusa v2 uses:
+	 *
+	 * variant.calculated_price.calculated_amount
+	 * variant.calculated_price.currency_code
+	 */
+	const calculatedPrice = selectedVariant?.calculated_price;
 
-	// Calculate discount/sale information
-	const currentPrice = selectedVariant?.pricing?.price?.gross?.amount;
-	const undiscountedPrice = selectedVariant?.pricing?.priceUndiscounted?.gross?.amount;
-	const { isOnSale, discountPercent } = getDiscountInfo(currentPrice, undiscountedPrice);
+	const currentPrice =
+		calculatedPrice?.calculated_amount !== undefined ? Number(calculatedPrice.calculated_amount) : undefined;
 
+	const originalPrice =
+		calculatedPrice?.original_amount !== undefined ? Number(calculatedPrice.original_amount) : undefined;
+
+	const currencyCode = calculatedPrice?.currency_code?.toUpperCase() ?? "";
+
+	/**
+	 * Format current price
+	 */
+	const price =
+		currentPrice !== undefined && currencyCode
+			? currentPrice === 0
+				? "FREE"
+				: formatMoney(currentPrice, currencyCode)
+			: "";
+
+	/**
+	 * Sale / discount
+	 */
+	const { isOnSale, discountPercent } = getDiscountInfo(currentPrice, originalPrice);
+
+	/**
+	 * Compare-at price
+	 */
 	const compareAtPrice =
-		isOnSale && selectedVariant?.pricing?.priceUndiscounted?.gross
-			? formatMoney(
-					selectedVariant.pricing.priceUndiscounted.gross.amount,
-					selectedVariant.pricing.priceUndiscounted.gross.currency,
-				)
-			: null;
+		isOnSale && originalPrice !== undefined && currencyCode ? formatMoney(originalPrice, currencyCode) : null;
 
-	// Server action for adding to cart
+	/**
+	 * ---------------------------------------------------------
+	 * ADD TO CART
+	 * ---------------------------------------------------------
+	 *
+	 * The actual cart implementation should use Medusa's
+	 * Cart API / SDK.
+	 */
 	async function addToCart() {
 		"use server";
 
-		if (!selectedVariantID) {
-			// Silently return - button should be disabled if no variant selected
+		if (!selectedVariantId) {
 			return;
 		}
 
 		try {
+			/**
+			 * Keep using the existing Checkout helper for now.
+			 *
+			 * IMPORTANT:
+			 * Checkout.findOrCreate / Checkout.addLineItem
+			 * must internally use Medusa.
+			 */
 			const checkout = await Checkout.findOrCreate({
 				checkoutId: await Checkout.getIdFromCookies(channel),
-				channel: channel,
+				channel,
 			});
 
 			if (!checkout) {
-				// Log error server-side, UI will show via ErrorBoundary if needed
-				console.error("Add to cart: Failed to create checkout");
+				console.error("Add to cart: Failed to create Medusa cart");
 				return;
 			}
 
 			await Checkout.saveIdToCookie(channel, checkout.id);
 
-			const addResult = await executeAuthenticatedGraphQL(CheckoutAddLineDocument, {
-				variables: {
-					id: checkout.id,
-					productVariantId: decodeURIComponent(selectedVariantID),
-				},
-				cache: "no-cache",
-			});
+			/**
+			 * Medusa cart line item
+			 *
+			 * If your Checkout helper exposes addLineItem,
+			 * use it here.
+			 */
+			if ("addLineItem" in Checkout && typeof Checkout.addLineItem === "function") {
+				await Checkout.addLineItem({
+					cartId: checkout.id,
+					variantId: selectedVariantId,
+					quantity: 1,
+				});
+			} else {
+				console.error(
+					"Checkout.addLineItem() is not implemented. " + "Convert src/lib/checkout.ts to Medusa Cart API.",
+				);
 
-			if (!addResult.ok) {
-				console.error("Add to cart failed:", addResult.error.message);
 				return;
 			}
 
 			revalidatePath("/cart");
 		} catch (error) {
-			// Log error server-side - the UI feedback comes from cart drawer/badge update
-			// For explicit error UI, would need useActionState (separate enhancement)
 			console.error("Add to cart failed:", error);
 		}
 	}
 
+	/**
+	 * Product category
+	 *
+	 * Medusa uses product.categories[]
+	 */
+	const category = product.categories?.[0];
+
+	/**
+	 * Variant section
+	 */
 	return (
 		<>
-			{/* Category + Sale/Stock badges row - order:1 so it appears ABOVE the h1 */}
+			{/* Category + Sale/Stock badges */}
 			<div className="order-1 flex items-center gap-2">
-				{product.category && <span className="text-sm text-muted-foreground">{product.category.name}</span>}
+				{category?.name && <span className="text-sm text-muted-foreground">{category.name}</span>}
+
 				{isOnSale && (
 					<Badge variant="destructive" className="text-xs">
 						Sale
 					</Badge>
 				)}
+
 				{!isAvailable && (
 					<Badge variant="secondary" className="text-xs">
 						Out of stock
@@ -129,17 +205,18 @@ export async function VariantSectionDynamic({ product, channel, searchParams }: 
 				)}
 			</div>
 
-			{/* Rest of variant section - order:3 so it appears BELOW the h1 */}
+			{/* Variant section */}
 			<form action={addToCart} className="order-3 mt-4 space-y-6">
-				{/* Variant Selectors */}
 				<VariantSelectionSection
 					variants={variants}
-					selectedVariantId={selectedVariantID}
-					productSlug={product.slug}
+					selectedVariantId={selectedVariantId}
+					productSlug={product.handle}
 					channel={channel}
+					productOptions={product.options ?? []}
 				/>
 
-				{/* Add to Cart */}
+				<QuantitySelector />
+
 				<AddToCart
 					price={price}
 					compareAtPrice={compareAtPrice}
@@ -148,30 +225,27 @@ export async function VariantSectionDynamic({ product, channel, searchParams }: 
 					disabledReason={disabledReason}
 				/>
 
-				{/* Sticky Add to Cart Bar (Mobile) */}
-				<StickyBar productName={product.name} price={price} show={!isAddToCartDisabled} />
+				<StickyBar productName={product.title} price={price} show={!isAddToCartDisabled} />
 			</form>
 		</>
 	);
 }
 
 /**
- * Skeleton fallback for variant section.
- *
- * Uses delayed visibility (300ms) to prevent flash on fast loads.
- * Part of the static shell - shows while variant data streams in.
+ * Skeleton fallback
  */
 export function VariantSectionSkeleton() {
 	return (
 		<>
-			{/* Category skeleton - order:1, delayed visibility */}
+			{/* Category skeleton */}
 			<div className="order-1 h-4 w-20 animate-pulse animate-skeleton-delayed rounded bg-muted opacity-0" />
 
-			{/* Variant section skeleton - order:3, delayed visibility */}
+			{/* Variant section skeleton */}
 			<div className="order-3 mt-4 animate-pulse animate-skeleton-delayed space-y-6 opacity-0">
-				{/* Variant selector skeleton */}
+				{/* Variant selector */}
 				<div className="space-y-4">
 					<div className="h-4 w-16 rounded bg-muted" />
+
 					<div className="flex gap-2">
 						<div className="h-10 w-16 rounded bg-muted" />
 						<div className="h-10 w-16 rounded bg-muted" />
@@ -179,10 +253,10 @@ export function VariantSectionSkeleton() {
 					</div>
 				</div>
 
-				{/* Price skeleton */}
+				{/* Price */}
 				<div className="h-8 w-24 rounded bg-muted" />
 
-				{/* Add to cart button skeleton */}
+				{/* Add to cart */}
 				<div className="h-12 w-full rounded bg-muted" />
 			</div>
 		</>

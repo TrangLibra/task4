@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreProductVariant } from "@medusajs/types";
 import { cn, formatMoney } from "@/lib/utils";
 
 /**
@@ -25,19 +26,10 @@ import { cn, formatMoney } from "@/lib/utils";
  */
 
 interface VariantNameSelectorProps {
-	variants: Array<{
-		id: string;
-		name: string;
-		quantityAvailable?: number | null;
-		pricing?: {
-			price?: { gross: { amount: number; currency: string } } | null;
-			priceUndiscounted?: { gross: { amount: number; currency: string } } | null;
-		} | null;
-	}>;
+	variants: StoreProductVariant[];
 	selectedVariantId?: string;
 	onSelect: (variantId: string) => void;
 	label?: string;
-	/** Whether a transition is in progress */
 	isPending?: boolean;
 }
 
@@ -48,19 +40,21 @@ export function VariantNameSelector({
 	label = "Variant",
 	isPending,
 }: VariantNameSelectorProps) {
-	// Check if prices differ between variants (show price if so)
-	const prices = variants
-		.map((v) => v.pricing?.price?.gross?.amount)
-		.filter((p): p is number => p !== undefined && p !== null);
-	const showPrices = prices.length > 1 && new Set(prices).size > 1;
-
 	const selectedVariant = variants.find((v) => v.id === selectedVariantId);
+
+	// Lấy giá hiện tại của các variant
+	const prices = variants
+		.map((v) => v.calculated_price?.calculated_amount)
+		.filter((p): p is number => p !== undefined && p !== null);
+
+	const showPrices = prices.length > 1 && new Set(prices).size > 1;
 
 	return (
 		<div className="space-y-3">
 			<div className="flex items-center gap-2">
 				<span className="text-sm font-medium">{label}</span>
-				{selectedVariant && <span className="text-sm text-muted-foreground">{selectedVariant.name}</span>}
+
+				{selectedVariant && <span className="text-sm text-muted-foreground">{selectedVariant.title}</span>}
 			</div>
 
 			<div
@@ -71,23 +65,34 @@ export function VariantNameSelector({
 					"flex flex-wrap gap-3 transition-opacity duration-150",
 					isPending && "pointer-events-none opacity-60",
 				)}
-				style={{ transitionDelay: isPending ? "100ms" : "0ms" }}
+				style={{
+					transitionDelay: isPending ? "100ms" : "0ms",
+				}}
 			>
 				{variants.map((variant) => {
 					const isSelected = variant.id === selectedVariantId;
-					const isOutOfStock = (variant.quantityAvailable ?? 0) <= 0;
-					const price = variant.pricing?.price?.gross;
-					const undiscountedPrice = variant.pricing?.priceUndiscounted?.gross;
-					const hasDiscount = price && undiscountedPrice && undiscountedPrice.amount > price.amount;
-					const discountPercent = hasDiscount
-						? Math.round((1 - price.amount / undiscountedPrice.amount) * 100)
-						: null;
 
-					// Build accessible label
+					// Medusa inventory
+					const isOutOfStock =
+						variant.manage_inventory === true &&
+						(variant.inventory_quantity ?? 0) <= 0 &&
+						variant.allow_backorder !== true;
+
+					const price = variant.calculated_price?.calculated_amount;
+
+					const originalPrice = variant.calculated_price?.original_amount;
+
+					const currencyCode = variant.calculated_price?.currency_code;
+
+					const hasDiscount =
+						typeof price === "number" && typeof originalPrice === "number" && originalPrice > price;
+
+					const discountPercent = hasDiscount ? Math.round((1 - price / originalPrice) * 100) : null;
+
 					const accessibleParts = [
-						variant.name,
+						variant.title,
 						isOutOfStock && "out of stock",
-						showPrices && price && formatMoney(price.amount, price.currency),
+						showPrices && typeof price === "number" && currencyCode && formatMoney(price, currencyCode),
 						discountPercent && `${discountPercent}% off`,
 					].filter(Boolean);
 
@@ -98,28 +103,32 @@ export function VariantNameSelector({
 								onClick={() => onSelect(variant.id)}
 								disabled={isOutOfStock}
 								aria-disabled={isOutOfStock}
+								aria-label={accessibleParts.join(", ")}
+								aria-pressed={isSelected}
 								className={cn(
 									"h-12 min-w-[4.5rem] rounded-lg border px-4 text-sm font-medium transition-all",
 									"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+
 									isSelected
 										? "border-foreground bg-foreground text-background"
 										: "border-border bg-background text-foreground hover:border-foreground",
+
 									isOutOfStock && "cursor-not-allowed text-muted-foreground line-through opacity-60",
 								)}
-								title={isOutOfStock ? `${variant.name} - Out of stock` : undefined}
-								aria-label={accessibleParts.join(", ")}
-								aria-pressed={isSelected}
+								title={isOutOfStock ? `${variant.title} - Out of stock` : undefined}
 							>
 								<span className="flex items-center gap-2">
-									{variant.name}
-									{showPrices && price && (
+									{variant.title}
+
+									{showPrices && typeof price === "number" && currencyCode && (
 										<span className={cn("text-xs", isSelected ? "opacity-80" : "text-muted-foreground")}>
-											{formatMoney(price.amount, price.currency)}
+											{formatMoney(price, currencyCode)}
 										</span>
 									)}
 								</span>
 							</button>
-							{discountPercent && !isOutOfStock && (
+
+							{discountPercent && discountPercent > 0 && !isOutOfStock && (
 								<span
 									className="pointer-events-none absolute -bottom-2 -right-1 rounded-full border border-destructive bg-background px-1.5 py-0.5 text-[10px] font-semibold text-destructive"
 									aria-hidden="true"

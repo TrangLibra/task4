@@ -1,20 +1,16 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
-import { ProductListPaginatedDocument } from "@/gql/graphql";
-import { executePublicGraphQL } from "@/lib/graphql";
-import { getPaginatedListVariables } from "@/lib/utils";
-import { CategoryHero, transformToProductCard } from "@/ui/components/plp";
-import { buildSortVariables, buildFilterVariables } from "@/ui/components/plp/filter-utils";
-import { resolveCategorySlugsToIds } from "@/ui/components/plp/filter-utils.server";
-import { ProductsPageClient } from "./products-client";
-
+import Link from "next/link";
+import { CategoryHero } from "@/ui/components/plp";
+import { AddToCartButton } from "@/ui/components/products/add-to-cart-button";
 export const metadata = {
-	title: "Products · Saleor Storefront example",
-	description: "All products in Saleor Storefront example",
+	title: "All Products",
+	description: "Discover our full collection of products.",
 };
 
 type PageProps = {
-	params: Promise<{ channel: string }>;
+	params: Promise<{
+		channel: string;
+	}>;
 	searchParams: Promise<{
 		cursor?: string | string[];
 		direction?: string | string[];
@@ -26,27 +22,61 @@ type PageProps = {
 	}>;
 };
 
-/**
- * Products page with Cache Components.
- * Static shell (hero) renders immediately, product grid streams in.
- */
+type MedusaCalculatedPrice = {
+	currency_code: string;
+	calculated_amount: number;
+};
+
+type MedusaVariant = {
+	id: string;
+	title?: string;
+	calculated_price?: MedusaCalculatedPrice | null;
+	inventory_quantity?: number | null;
+	manage_inventory?: boolean;
+	allow_backorder?: boolean;
+	options?: {
+		id?: string;
+		option_id?: string;
+		value?: string;
+	}[];
+};
+type MedusaProduct = {
+	id: string;
+	title: string;
+	handle: string;
+	thumbnail?: string | null;
+	variants?: MedusaVariant[];
+};
+
+type MedusaProductsResponse = {
+	products?: MedusaProduct[];
+	count?: number;
+	limit?: number;
+	offset?: number;
+};
+
 export default async function Page(props: PageProps) {
 	const params = await props.params;
 
 	const breadcrumbs = [
-		{ label: "Home", href: `/${params.channel}` },
-		{ label: "Products", href: `/${params.channel}/products` },
+		{
+			label: "Home",
+			href: `/${params.channel}`,
+		},
+		{
+			label: "All Products",
+			href: `/${params.channel}/products`,
+		},
 	];
 
 	return (
 		<>
-			{/* Static shell - renders immediately */}
 			<CategoryHero
 				title="All Products"
 				description="Discover our full collection of premium products."
 				breadcrumbs={breadcrumbs}
 			/>
-			{/* Dynamic content - streams in via Suspense */}
+
 			<Suspense fallback={<ProductsGridSkeleton />}>
 				<ProductsContent params={props.params} searchParams={props.searchParams} />
 			</Suspense>
@@ -54,79 +84,154 @@ export default async function Page(props: PageProps) {
 	);
 }
 
-/**
- * Dynamic products content - reads searchParams at request time.
- */
 async function ProductsContent({
 	params: paramsPromise,
 	searchParams: searchParamsPromise,
 }: {
-	params: Promise<{ channel: string }>;
+	params: PageProps["params"];
 	searchParams: PageProps["searchParams"];
 }) {
-	const [params, searchParams] = await Promise.all([paramsPromise, searchParamsPromise]);
+	const params = await paramsPromise;
+	const searchParams = await searchParamsPromise;
 
-	const paginationVariables = getPaginatedListVariables({ params: searchParams });
-	const sortBy = buildSortVariables(searchParams.sort);
+	const backendUrl = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL;
+	const publishableKey = process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY;
 
-	// Parse category slugs from URL and resolve to IDs for server-side filtering
-	const categorySlugs = searchParams.categories?.split(",").filter(Boolean) || [];
-	const categoryMap = await resolveCategorySlugsToIds(categorySlugs);
-	const categoryIds = Array.from(categoryMap.values()).map((c) => c.id);
-
-	const filter = buildFilterVariables({
-		priceRange: searchParams.price,
-		categoryIds,
-	});
-
-	const result = await executePublicGraphQL(ProductListPaginatedDocument, {
-		variables: {
-			...paginationVariables,
-			channel: params.channel,
-			sortBy,
-			filter,
-		},
-		revalidate: 300,
-	});
-
-	if (!result.ok || !result.data.products) {
-		notFound();
+	if (!backendUrl) {
+		throw new Error("NEXT_PUBLIC_MEDUSA_BACKEND_URL is not configured");
 	}
 
-	const products = result.data.products;
-	const productCards = products.edges.map((e) => transformToProductCard(e.node, params.channel));
+	if (!publishableKey) {
+		throw new Error("NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY is not configured");
+	}
 
-	// Build resolved categories array for the client (for active filter display)
-	const resolvedCategories = categorySlugs
-		.map((slug) => {
-			const cat = categoryMap.get(slug);
-			return cat ? { slug, id: cat.id, name: cat.name } : null;
-		})
-		.filter(Boolean) as { slug: string; id: string; name: string }[];
+	/*
+	 * ================================
+	 * MEDUSA PRODUCTS API
+	 * ================================
+	 */
+	const url = new URL("/store/products", backendUrl);
+
+	url.searchParams.set("limit", "20");
+	url.searchParams.set("fields", "*variants,*options");
+	/*
+	 * Pagination
+	 */
+	const cursor = Array.isArray(searchParams.cursor) ? searchParams.cursor[0] : searchParams.cursor;
+
+	if (cursor) {
+		url.searchParams.set("cursor", cursor);
+	}
+
+	const response = await fetch(url.toString(), {
+		headers: {
+			"x-publishable-api-key": publishableKey,
+			"Content-Type": "application/json",
+		},
+		next: {
+			revalidate: 300,
+		},
+	});
+
+	if (!response.ok) {
+		console.error("[Medusa Products]", response.status, response.statusText);
+
+		throw new Error("Failed to fetch products from Medusa");
+	}
+
+	/*
+	 * response.json() = unknown
+	 * nên phải cast về type MedusaProductsResponse
+	 */
+	const data = (await response.json()) as MedusaProductsResponse;
+
+	const products = data.products ?? [];
+
+	console.log("[Medusa Products] Loaded:", products.length, products);
 
 	return (
-		<ProductsPageClient
-			products={productCards}
-			pageInfo={products.pageInfo}
-			totalCount={products.totalCount ?? productCards.length}
-			resolvedCategories={resolvedCategories}
-		/>
+		<div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+			{/* HEADER */}
+			<div className="mb-6 flex items-center justify-between">
+				<p className="text-sm text-muted-foreground">{products.length} sản phẩm</p>
+			</div>
+
+			{/* PRODUCT GRID */}
+			<div className="grid grid-cols-2 gap-4 lg:grid-cols-3 lg:gap-6">
+				{products.map((product) => {
+					const firstVariant = product.variants?.[0];
+					const price = firstVariant?.calculated_price;
+
+					return (
+						<div
+							key={product.id}
+							className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+						>
+							{/* IMAGE */}
+							<Link href={`/${params.channel}/products/${product.handle}`} className="block">
+								<div className="relative overflow-hidden bg-gray-50">
+									{product.thumbnail ? (
+										<img
+											src={product.thumbnail}
+											alt={product.title}
+											className="aspect-[3/4] w-full object-cover transition-transform duration-500 group-hover:scale-105"
+										/>
+									) : (
+										<div className="flex aspect-[3/4] w-full items-center justify-center bg-gray-100 text-sm text-gray-400">
+											Không có hình ảnh
+										</div>
+									)}
+								</div>
+							</Link>
+
+							{/* PRODUCT INFO */}
+							<div className="p-4">
+								<Link href={`/${params.channel}/products/${product.handle}`}>
+									<h2 className="line-clamp-2 min-h-[48px] text-base font-semibold text-gray-900 transition-colors group-hover:text-orange-500">
+										{product.title}
+									</h2>
+								</Link>
+
+								{/* PRICE */}
+								{price && (
+									<p className="mt-2 text-lg font-bold text-orange-600">
+										{price.calculated_amount.toLocaleString("vi-VN")} {price.currency_code.toUpperCase()}
+									</p>
+								)}
+
+								{/* PRODUCT INFO */}
+								<div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+									<span>{product.variants?.length ?? 0} phiên bản</span>
+
+									<span className="text-green-600">✓ Còn hàng</span>
+								</div>
+
+								{/* ADD TO CART */}
+								<AddToCartButton variantId={firstVariant?.id} />
+							</div>
+						</div>
+					);
+				})}
+			</div>
+
+			{/* EMPTY */}
+			{products.length === 0 && (
+				<div className="py-16 text-center">
+					<p className="text-muted-foreground">Không tìm thấy sản phẩm trong Medusa.</p>
+				</div>
+			)}
+		</div>
 	);
 }
 
-/**
- * Products grid skeleton with delayed visibility.
- * Matches ProductGrid/ProductCard dimensions to prevent layout shift.
- */
 function ProductsGridSkeleton() {
 	return (
 		<div className="mx-auto max-w-7xl animate-skeleton-delayed px-4 py-8 opacity-0 sm:px-6 lg:px-8">
-			{/* Matches ProductGrid: grid-cols-2 lg:grid-cols-3 */}
 			<div className="grid grid-cols-2 gap-4 lg:grid-cols-3 lg:gap-6">
 				{Array.from({ length: 6 }).map((_, i) => (
 					<div key={i} className="animate-pulse">
-						{/* Matches ProductCard: aspect-[3/4] rounded-xl */}
 						<div className="mb-4 aspect-[3/4] rounded-xl bg-muted" />
+
 						<div className="space-y-1.5">
 							<div className="h-4 w-3/4 rounded bg-muted" />
 							<div className="h-4 w-1/2 rounded bg-muted" />

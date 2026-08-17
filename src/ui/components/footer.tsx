@@ -1,27 +1,26 @@
 import Link from "next/link";
-import { LinkWithChannel } from "../atoms/link-with-channel";
+// import { LinkWithChannel } from "../atoms/link-with-channel";
 import { ChannelSelect } from "./channel-select";
 import { ChannelsListDocument, MenuGetBySlugDocument } from "@/gql/graphql";
 import { executePublicGraphQL } from "@/lib/graphql";
 import { CACHE_PROFILES, applyCacheProfile } from "@/lib/cache-manifest";
 import { CopyrightText } from "./copyright-text";
 import { Logo } from "./shared/logo";
-
-// Default footer links when no CMS data is available
-const defaultFooterLinks = {
-	support: [
-		{ label: "Contact Us", href: "/contact" },
-		{ label: "FAQs", href: "/faq" },
-		{ label: "Shipping", href: "/shipping" },
-		{ label: "Returns", href: "/returns" },
-	],
-	company: [
-		{ label: "About", href: "/about" },
-		{ label: "Sustainability", href: "/sustainability" },
-		{ label: "Careers", href: "/careers" },
-		{ label: "Press", href: "/press" },
-	],
-};
+import { MapPin, Mail, Phone, Facebook, Instagram, Youtube } from "lucide-react"; // Default footer links when no CMS data is available
+// const defaultFooterLinks = {
+// 	support: [
+// 		{ label: "Contact Us", href: "/contact" },
+// 		{ label: "FAQs", href: "/faq" },
+// 		{ label: "Shipping", href: "/shipping" },
+// 		{ label: "Returns", href: "/returns" },
+// 	],
+// 	company: [
+// 		{ label: "About", href: "/about" },
+// 		{ label: "Sustainability", href: "/sustainability" },
+// 		{ label: "Careers", href: "/careers" },
+// 		{ label: "Press", href: "/press" },
+// 	],
+// };
 
 /** Cached channels list - rarely changes */
 async function getChannels() {
@@ -55,126 +54,84 @@ async function getFooterMenu(channel: string) {
 }
 
 export async function Footer({ channel }: { channel: string }) {
-	const [footerLinks, channels] = await Promise.all([getFooterMenu(channel), getChannels()]);
+	const [, channels] = await Promise.all([getFooterMenu(channel), getChannels()]);
 
-	const menuItems = footerLinks?.menu?.items || [];
+	// const menuItems = footerLinks?.menu?.items || [];
 
 	return (
-		<footer className="bg-foreground text-background">
+		<footer className="border-t border-gray-200 bg-white text-gray-800">
 			{/* Extra bottom padding on mobile to account for sticky add-to-cart bar */}
 			<div className="mx-auto max-w-7xl px-4 pb-24 pt-12 sm:px-6 sm:pb-12 lg:px-8 lg:py-16">
-				<div className="grid grid-cols-2 gap-8 md:grid-cols-4 lg:gap-12">
-					{/* Brand */}
-					<div className="col-span-2 md:col-span-1">
-						<Link href={`/${channel}`} prefetch={false} className="mb-4 inline-block">
-							<Logo className="h-7 w-auto" inverted />
-						</Link>
-						<p className="mt-4 max-w-xs text-sm leading-relaxed text-neutral-400">
-							Minimal design, maximum impact. Thoughtfully crafted essentials for everyday comfort.
-						</p>
+				<div className="grid grid-cols-1 gap-10 md:grid-cols-4">
+					{/* Cột 1 */}
+					<div>
+						<Logo className="h-16 w-auto" />
+
+						<div className="mt-5 space-y-4">
+							<div className="flex items-start gap-3">
+								<MapPin className="mt-1 h-5 w-5 text-orange-500" />
+								<p className="text-gray-700">23/11 Nguyễn Văn Lạc, Bình Thạnh, TP.HCM</p>
+							</div>
+
+							<div className="flex items-center gap-3">
+								<Mail className="h-5 w-5 text-orange-500" />
+								<p className="text-gray-700">meomeo@meocung.vn</p>
+							</div>
+
+							<div className="flex items-center gap-3">
+								<Phone className="h-5 w-5 text-orange-500" />
+								<p className="text-gray-700">0902751819</p>
+							</div>
+						</div>
+
+						<h3 className="mb-4 mt-8 text-lg font-bold">MẠNG XÃ HỘI</h3>
+
+						<div className="flex gap-4">
+							<Facebook className="h-6 w-6 cursor-pointer text-blue-600 transition hover:scale-110" />
+							<Instagram className="h-6 w-6 cursor-pointer text-pink-500 transition hover:scale-110" />
+							<Youtube className="h-6 w-6 cursor-pointer text-red-600 transition hover:scale-110" />
+						</div>
 					</div>
 
-					{/* Dynamic menu items from Saleor CMS */}
-					{menuItems.map((item) => (
-						<div key={item.id}>
-							<h4 className="mb-4 text-sm font-medium text-neutral-300">{item.name}</h4>
-							<ul className="space-y-3">
-								{item.children?.map((child) => {
-									if (child.category) {
-										return (
-											<li key={child.id}>
-												<LinkWithChannel
-													href={`/categories/${child.category.slug}`}
-													prefetch={false}
-													className="text-sm text-neutral-400 transition-colors hover:text-neutral-200"
-												>
-													{child.category.name}
-												</LinkWithChannel>
-											</li>
-										);
-									}
-									if (child.collection) {
-										return (
-											<li key={child.id}>
-												<LinkWithChannel
-													href={`/collections/${child.collection.slug}`}
-													prefetch={false}
-													className="text-sm text-neutral-400 transition-colors hover:text-neutral-200"
-												>
-													{child.collection.name}
-												</LinkWithChannel>
-											</li>
-										);
-									}
-									if (child.page) {
-										return (
-											<li key={child.id}>
-												<LinkWithChannel
-													href={`/pages/${child.page.slug}`}
-													prefetch={false}
-													className="text-sm text-neutral-400 transition-colors hover:text-neutral-200"
-												>
-													{child.page.title}
-												</LinkWithChannel>
-											</li>
-										);
-									}
-									if (child.url) {
-										return (
-											<li key={child.id}>
-												<Link
-													href={child.url}
-													prefetch={false}
-													className="text-sm text-neutral-400 transition-colors hover:text-neutral-200"
-												>
-													{child.name}
-												</Link>
-											</li>
-										);
-									}
-									return null;
-								})}
-							</ul>
-						</div>
-					))}
+					{/* Cột 2 */}
+					<div>
+						<h3 className="mb-4 text-xl font-bold">Giới thiệu</h3>
 
-					{/* Static Support links (if no CMS data) */}
-					{menuItems.length === 0 && (
-						<>
-							<div>
-								<h4 className="mb-4 text-sm font-medium text-neutral-300">Support</h4>
-								<ul className="space-y-3">
-									{defaultFooterLinks.support.map((link) => (
-										<li key={link.href}>
-											<Link
-												href={link.href}
-												prefetch={false}
-												className="text-sm text-neutral-400 transition-colors hover:text-neutral-200"
-											>
-												{link.label}
-											</Link>
-										</li>
-									))}
-								</ul>
-							</div>
-							<div>
-								<h4 className="mb-4 text-sm font-medium text-neutral-300">Company</h4>
-								<ul className="space-y-3">
-									{defaultFooterLinks.company.map((link) => (
-										<li key={link.href}>
-											<Link
-												href={link.href}
-												prefetch={false}
-												className="text-sm text-neutral-400 transition-colors hover:text-neutral-200"
-											>
-												{link.label}
-											</Link>
-										</li>
-									))}
-								</ul>
-							</div>
-						</>
-					)}
+						<ul className="space-y-3 text-gray-700">
+							<li className="cursor-pointer transition hover:text-orange-500">Trang chủ</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Tin tức</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Về Mèo Cưng</li>
+						</ul>
+					</div>
+
+					{/* Cột 3 */}
+					<div>
+						<h3 className="mb-4 text-xl font-bold">Hỗ trợ khách hàng</h3>
+
+						<ul className="space-y-3 text-gray-700">
+							<li className="cursor-pointer transition hover:text-orange-500">Hướng dẫn mua hàng</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Thanh toán VNPAY</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Hướng dẫn thanh toán</li>
+						</ul>
+					</div>
+
+					{/* Cột 4 */}
+					<div>
+						<h3 className="mb-4 text-xl font-bold">Chính sách</h3>
+						<ul className="space-y-3 text-gray-700">
+							<li className="cursor-pointer transition hover:text-orange-500">Chính sách kiểm hàng</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Chính sách đổi trả</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Chính sách vận chuyển</li>
+							<li className="cursor-pointer transition hover:text-orange-500">Điều khoản</li>
+						</ul>
+						<h3 className="mb-4 mt-8 text-lg font-bold">PHƯƠNG THỨC THANH TOÁN</h3>
+						<div className="mt-4 flex flex-wrap items-center gap-4">
+							<img src="/cod.png" alt="COD" className="h-10 w-auto object-contain" />
+							<img src="/credit.png" alt="credit" className="h-10 w-auto object-contain" />
+							<img src="/vnpay.png" alt="VNPAY" className="h-10 w-auto object-contain" />
+							<img src="/transfer.png" alt="transfer" className="h-10 w-auto object-contain" />
+						</div>
+					</div>
 				</div>
 
 				{/* Channel selector */}

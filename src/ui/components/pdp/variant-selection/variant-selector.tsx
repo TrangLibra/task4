@@ -26,12 +26,13 @@ export function VariantSelector({
 
 	const handleSelect = (optionId: string) => {
 		const option = options.find((opt) => opt.id === optionId);
-		if (!option?.available) return;
+
+		if (!option?.available) {
+			return;
+		}
+
 		onSelect(attributeSlug, optionId);
 	};
-
-	if (!options.length) return null;
-
 	// Determine which renderer to use for each option
 	const getRendererForOption = (option: (typeof options)[number]): OptionRenderer => {
 		// 1. Explicit renderer prop takes precedence

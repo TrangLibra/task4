@@ -19,6 +19,14 @@ query ProductDetails($slug: String!, $channel: String!) {
 			id
 			name
 			slug
+
+			products(first: 4, channel: $channel) {
+				edges {
+					node {
+						...ProductListItem
+					}
+				}
+			}
 		}
 		attributes {
 			values {
