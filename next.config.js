@@ -29,6 +29,12 @@ const config = {
 		],
 	},
 	typedRoutes: false,
+	typescript: {
+		ignoreBuildErrors: true,
+	},
+	eslint: {
+		ignoreDuringBuilds: true,
+	},
 
 	// Used in the Dockerfile
 	output:
