@@ -14,7 +14,6 @@ import {
 	VariantSectionSkeleton,
 	VariantSectionError,
 } from "@/ui/components/pdp";
-import { FeatureHighlights } from "@/ui/components/pdp/feature-highlights";
 
 import type { HttpTypes } from "@medusajs/types";
 
@@ -185,12 +184,6 @@ async function ProductContent({
 	const productAttributes = extractProductAttributes(product);
 	console.log("PRODUCT TYPE:", product.type);
 	const careInstructions = extractCareInstructions(product);
-
-	// ==========================================================================
-	// Related Products
-	// ==========================================================================
-
-	const relatedProducts: Product[] = [];
 
 	// ==========================================================================
 	// Breadcrumbs
