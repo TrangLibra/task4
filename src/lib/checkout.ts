@@ -184,7 +184,7 @@ export async function find(cartId: string): Promise<MedusaCart | null> {
  * CREATE CART
  * ============================================================ */
 
-export async function create({ channel }: { channel: string }): Promise<{
+export async function create({ channel: _channel }: { channel?: string } = {}): Promise<{
 	ok: boolean;
 	data?: {
 		cart: MedusaCart;
