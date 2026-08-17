@@ -70,7 +70,9 @@ async function getCategoryData(slug: string): Promise<MedusaCategory | null> {
 				"x-publishable-api-key": PUBLISHABLE_KEY,
 				"Content-Type": "application/json",
 			},
-			cache: "no-store",
+			next: {
+				revalidate: 300,
+			},
 		});
 
 		if (!response.ok) {
@@ -149,7 +151,9 @@ async function getCategoryProducts(
 				"x-publishable-api-key": PUBLISHABLE_KEY,
 				"Content-Type": "application/json",
 			},
-			cache: "no-store",
+			next: {
+				revalidate: 300,
+			},
 		});
 
 		if (!response.ok) {

@@ -21,7 +21,9 @@ async function getMedusaCategories(): Promise<ProductCategory[]> {
 			headers: {
 				"x-publishable-api-key": publishableKey,
 			},
-			cache: "no-store",
+			next: {
+				revalidate: 300,
+			},
 		});
 
 		if (!response.ok) {

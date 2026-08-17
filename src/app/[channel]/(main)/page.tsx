@@ -49,7 +49,9 @@ async function getMedusaCategories(): Promise<Category[]> {
 			headers: {
 				"x-publishable-api-key": publishableKey,
 			},
-			cache: "no-store",
+			next: {
+				revalidate: 300,
+			},
 		});
 
 		if (!response.ok) {
@@ -100,7 +102,9 @@ async function getProductsByCategory(categoryId: string): Promise<Product[]> {
 			headers: {
 				"x-publishable-api-key": publishableKey,
 			},
-			cache: "no-store",
+			next: {
+				revalidate: 300,
+			},
 		});
 
 		if (!response.ok) {
