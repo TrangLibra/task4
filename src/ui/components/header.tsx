@@ -31,7 +31,7 @@ async function getCategories(): Promise<Category[]> {
 
 		const url = new URL("/store/product-categories", backendUrl);
 
-		url.searchParams.set("limit", "100");
+		url.searchParams.set("limit", "50");
 
 		const response = await fetch(url.toString(), {
 			headers: {
