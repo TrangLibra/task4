@@ -15,8 +15,14 @@ type ProductCardProps = {
 export function ProductCard({ product, channel }: ProductCardProps) {
 	const firstVariant = product.variants?.[0];
 
-	const price = firstVariant?.calculated_price?.calculated_amount;
-	const currency = firstVariant?.calculated_price?.currency_code;
+	const price =
+		firstVariant?.calculated_price?.calculated_amount ??
+		(firstVariant as any)?.prices?.[0]?.amount ??
+		null;
+	const currency =
+		firstVariant?.calculated_price?.currency_code ??
+		(firstVariant as any)?.prices?.[0]?.currency_code ??
+		"EUR";
 
 	const image = product.thumbnail || product.images?.[0]?.url || null;
 
